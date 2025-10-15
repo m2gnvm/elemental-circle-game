@@ -16,11 +16,11 @@ A strategic card game with elemental combat system built with FastAPI, PostgreSQ
 ## Tech Stack
 
 - **Backend**: FastAPI + Python
+- **Frontend**: Flutter (Web, Mobile, Desktop)
 - **Database**: PostgreSQL with SQLAlchemy ORM (persistent data & analytics)
 - **Caching**: Redis for real-time game state management
 - **Authentication**: JWT tokens
 - **Real-time**: WebSocket connections
-- **API Documentation**: Auto-generated OpenAPI/Swagger
 
 ## Quick Start
 
@@ -112,23 +112,53 @@ A strategic card game with elemental combat system built with FastAPI, PostgreSQ
 
 ## Game Rules
 
+### Core Mechanics
 1. **Elements**: Fire, Water, Grass
-2. **Advantages**: Grass > Water > Fire > Grass
-3. **Card Values**: 1-8 points
-4. **Scoring**: Points = (played_value × elemental_multiplier) - onboard_value
-5. **Winning**: Player with most points when all cards are played
+2. **Elemental Advantages**: 
+   - Grass beats Water (2x multiplier) / Water loses to Grass (0.5x multiplier)
+   - Water beats Fire (2x multiplier) / Fire loses to Water (0.5x multiplier)
+   - Fire beats Grass (2x multiplier) / Grass loses to Fire (0.5x multiplier)
+   - Same elements = 1x multiplier (no advantage)
+3. **Card Values**: 1-8 points per card
+4. **Turn System**: 
+   - Player 1 plays onboard card
+   - Player 2 counter-plays
+   - Points awarded to counter-player only
+5. **Scoring Formula**: 
+   - `Points = (played_card_value × elemental_multiplier) - onboard_card_value`
+   - Example: Play 6 Grass vs 4 Water = (6 × 2) - 4 = 8 points
+6. **Winning**: Player with most total points after all rounds
 
-## Development
+## Future Upgrades
 
-This project is designed to showcase skills for:
-- **Game Infrastructure Developer** roles
-- **ML Ops Engineer** positions
+### Phase 1: Enhanced Gameplay
+- **AI Opponents**: Smart AI with different difficulty levels and strategies
+- **Tournament Mode**: Multi-round tournaments with bracket system
+- **Custom Game Modes**: Different rule sets and card variations
+- **Player Statistics**: Detailed performance tracking and leaderboards
 
-Key architectural decisions demonstrate:
-- **Hybrid Database Architecture**: Redis + PostgreSQL for optimal performance
-- **High-performance async systems**: Sub-millisecond game state access
-- **Real-time multiplayer capabilities**: WebSocket + Redis pub/sub
-- **Scalable microservices architecture**: Container-ready with Docker
-- **Production-ready deployment patterns**: Kubernetes, monitoring, CI/CD
-- **Event-driven analytics**: Comprehensive game event logging
+### Phase 2: Web Application
+- **Flutter Web App**: Full-featured web application with modern UI
+- **Social Features**: Friends list, chat, and social interactions
+- **Enhanced UI/UX**: Beautiful game interface with animations
+- **Progressive Web App**: Installable web app with offline capabilities
+
+### Phase 3: Production Scale
+- **Cloud Deployment**: AWS/Azure production deployment
+- **Load Balancing**: Handle thousands of concurrent players
+- **Advanced Analytics**: ML-powered game balancing and cheat detection
+- **Monetization**: Premium features and cosmetic items
+
+### Phase 4: Platform Expansion (Optional)
+- **Mobile Apps**: Native iOS and Android applications
+- **Steam Integration**: Desktop version for Steam platform
+- **Cross-Platform**: Full cross-platform multiplayer support
+
+## Technical Specifications
+
+### Current Architecture
+- **Hybrid Database**: Redis (game state) + PostgreSQL (persistent data)
+- **Real-time Communication**: WebSocket with Redis pub/sub
+- **Containerization**: Docker with multi-service orchestration
+- **Authentication**: JWT-based secure authentication
 
