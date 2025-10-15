@@ -43,6 +43,11 @@ local.env
 *.swo
 *~
 
+# Cursor IDE
+.cursor/
+.cursorrules
+.cursorignore
+
 # OS
 .DS_Store
 .DS_Store?
