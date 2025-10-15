@@ -32,10 +32,6 @@ A strategic card game with elemental combat system built with FastAPI, PostgreSQ
 
 **Deploy with one command:**
 ```bash
-# Windows
-deploy_local.bat
-
-# Linux/WSL
 ./deploy_local.sh
 ```
 

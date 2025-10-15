@@ -1,17 +1,18 @@
 #!/bin/bash
 
-# Elemental Circle Game - Local Docker Deployment Script
-# This script deploys the backend service locally using Docker
+# Elemental Circle Game - WSL Docker Deployment Script
+# This script deploys the backend service locally using Docker in WSL
 
 set -e  # Exit on any error
 
-echo "🐳 Elemental Circle Game - Local Docker Deployment"
-echo "=================================================="
+echo "🐳 Elemental Circle Game - WSL Docker Deployment"
+echo "================================================"
 
 # Check if Docker is running
 if ! docker info > /dev/null 2>&1; then
     echo "❌ Docker is not running. Please start Docker Desktop first."
     echo "   Download from: https://www.docker.com/products/docker-desktop/"
+    echo "   Make sure WSL 2 integration is enabled in Docker Desktop settings"
     exit 1
 fi
 
