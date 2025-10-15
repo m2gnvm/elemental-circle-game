@@ -10,9 +10,20 @@ class RedisGameService:
     """Redis-based game state management"""
     
     def __init__(self):
+        # Parse REDIS_URL for Docker compatibility
+        if settings.REDIS_URL.startswith("redis://"):
+            # Extract host and port from URL
+            url_parts = settings.REDIS_URL.replace("redis://", "").split(":")
+            host = url_parts[0]
+            port = int(url_parts[1]) if len(url_parts) > 1 else 6379
+        else:
+            # Fallback to individual settings
+            host = settings.REDIS_HOST
+            port = settings.REDIS_PORT
+        
         self.redis_client = redis.Redis(
-            host=settings.REDIS_HOST,
-            port=settings.REDIS_PORT,
+            host=host,
+            port=port,
             db=settings.REDIS_DB,
             decode_responses=True
         )
