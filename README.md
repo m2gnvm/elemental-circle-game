@@ -24,6 +24,28 @@ A strategic card game with elemental combat system built with FastAPI, PostgreSQ
 
 ## Quick Start
 
+### Option 1: Docker Deployment (Recommended)
+
+**Prerequisites:**
+- Docker Desktop installed and running
+- WSL 2 integration enabled
+
+**Deploy with one command:**
+```bash
+# Windows
+deploy_local.bat
+
+# Linux/WSL
+./deploy_local.sh
+```
+
+**Check health:**
+```bash
+./check_docker_health.sh
+```
+
+### Option 2: Manual Setup
+
 1. **Install Dependencies**
    ```bash
    pip install -r requirements.txt
