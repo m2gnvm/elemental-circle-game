@@ -37,8 +37,9 @@ class RedisGameService:
             "max_rounds": max_rounds,
             "onboard_card": None,
             "players": {},
+            "board_setter_player_id": None,  # GamePlayer.id of whoever plays turn 1 this round
             "created_at": datetime.utcnow().isoformat(),
-            "last_activity": datetime.utcnow().isoformat()
+            "last_activity": datetime.utcnow().isoformat(),
         }
         
         key = f"game:{game_id}"
@@ -70,19 +71,26 @@ class RedisGameService:
         self.redis_client.setex(key, timedelta(hours=24), json.dumps(current_state))
         return True
     
-    def add_player(self, game_id: int, player_id: int, username: str, hand: List[Dict]) -> bool:
+    def add_player(
+        self,
+        game_id: int,
+        player_id: int,
+        username: str,
+        hand: List[Dict],
+        user_id: int | None = None,
+    ) -> bool:
         """Add player to game state"""
         current_state = self.get_game_state(game_id)
         if not current_state:
             return False
-        
-        # Add player to existing players
+
         current_state["players"][str(player_id)] = {
             "id": player_id,
+            "user_id": user_id,
             "username": username,
             "points": 0,
             "hand": hand,
-            "cards_played": 0
+            "cards_played": 0,
         }
         current_state["last_activity"] = datetime.utcnow().isoformat()
         

@@ -5,18 +5,18 @@ from typing import Dict, List, Any, Optional
 from app.models.game import Game, GamePlayer
 from app.services.redis_service import RedisGameService
 from app.services.event_service import EventService
-from app.services.game_service import GameService
-import secrets
+from app.engine.game_engine import GameEngine
+from app.core.config import settings
 import random
+import secrets
 
 class HybridGameService:
     """Hybrid game service using Redis for fast state and PostgreSQL for persistence"""
-    
+
     def __init__(self, db: Session):
         self.db = db
         self.redis_service = RedisGameService()
         self.event_service = EventService(db)
-        self.legacy_service = GameService(db)  # For card dealing logic
     
     def create_game(self, room_code: str, max_rounds: int = 5) -> Game:
         """Create a new game room"""
@@ -71,30 +71,42 @@ class HybridGameService:
         # Update PostgreSQL
         game.status = "in_progress"
         self.db.commit()
-        
+
+        # Sync status to Redis — get_game_state reads Redis, not PostgreSQL
+        self.redis_service.update_game_state(game_id, {"status": "in_progress"})
+
         # Deal cards and update Redis
         players = self.db.query(GamePlayer).filter(GamePlayer.game_id == game_id).all()
         
         for player in players:
-            # Deal cards using legacy service
-            hand = self.legacy_service._deal_cards()
-            
-            # Update Redis with player data
-            self.redis_service.add_player(
-                game_id, 
-                player.id, 
-                player.user.username, 
-                hand
+            hand = GameEngine.deal_hand(
+                settings.CARDS_PER_PLAYER,
+                settings.MIN_CARD_VALUE,
+                settings.MAX_CARD_VALUE,
             )
-        
+            self.redis_service.add_player(
+                game_id,
+                player.id,
+                player.user.username,
+                hand,
+                user_id=player.user_id,
+            )
+
         # Set initial onboard card
-        initial_card = self.legacy_service._deal_cards()[0]
+        initial_card = GameEngine.random_card(settings.MIN_CARD_VALUE, settings.MAX_CARD_VALUE)
         self.redis_service.set_onboard_card(game_id, initial_card)
-        
+
+        # Coin flip — randomly pick which player sets the board first.
+        # This same mechanic works for both multiplayer and vs-bot games.
+        first_setter_id = random.choice([p.id for p in players])
+        self.redis_service.update_game_state(
+            game_id, {"board_setter_player_id": first_setter_id}
+        )
+
         # Log round start
         self.event_service.log_round_started(game_id, 1)
-        
-        return True
+
+        return first_setter_id  # callers may use this to know who goes first
     
     def play_card(self, game_id: int, player_id: int, card_index: int) -> Dict[str, Any]:
         """Play a card and calculate the result"""
@@ -108,43 +120,67 @@ class HybridGameService:
         if not player_data:
             raise ValueError("Player not found in game")
         
+        # Enforce whose turn it is.
+        # board_setter_player_id = the GamePlayer.id that plays turn 1 this round.
+        # The other player plays turn 2. Reject plays that are out of order.
+        board_setter = game_state.get("board_setter_player_id")
+        if board_setter is not None:
+            is_setter = int(board_setter) == player_id
+            current_turn = game_state["turn"]
+            if is_setter and current_turn != 1:
+                raise ValueError("Not your turn — wait for the other player to set the board")
+            if not is_setter and current_turn != 2:
+                raise ValueError("Not your turn — the other player must set the board first")
+
         # Get card from hand
         hand = player_data["hand"]
         if card_index >= len(hand):
             raise ValueError("Invalid card index")
-        
+
         played_card = hand[card_index]
-        
+
         # Get onboard card
         onboard_card = game_state["onboard_card"]
         if not onboard_card:
             raise ValueError("No onboard card found")
         
         # Calculate battle result
-        points = self.legacy_service._battle_cards(onboard_card, played_card)
+        points = GameEngine.resolve_battle(onboard_card, played_card)
         
-        # Update Redis state
-        updates = {}
-        
-        # Only counter player gets points
+        # Advance turn / round state
+        turn_state = GameEngine.next_turn_state(
+            current_turn=game_state["turn"],
+            current_round=game_state["round"],
+            max_rounds=game_state["max_rounds"],
+        )
+
+        updates: dict[str, Any] = {
+            "turn": turn_state["turn"],
+            "round": turn_state["round"],
+        }
+
+        # Only the counter-player (turn 2) scores points
         if game_state["turn"] == 2:
-            # Update player points in Redis
             self.redis_service.update_player_points(game_id, player_id, points)
-            updates["turn"] = 1  # Reset turn
-            updates["round"] = game_state["round"] + 1  # Next round
-            
+
+            # Flip board-setter for the next round
+            all_ids = [int(pid) for pid in game_state["players"]]
+            current_setter = game_state.get("board_setter_player_id")
+            if current_setter is not None and len(all_ids) == 2:
+                updates["board_setter_player_id"] = next(
+                    pid for pid in all_ids if pid != int(current_setter)
+                )
+
             # Log round end
-            player_points = {}
-            for pid, pdata in game_state["players"].items():
-                player_points[int(pid)] = pdata["points"]
+            player_points = {
+                int(pid): pdata["points"]
+                for pid, pdata in game_state["players"].items()
+            }
             self.event_service.log_round_ended(game_id, game_state["round"], player_points)
-            
-            # Check if game finished
-            if updates["round"] > game_state["max_rounds"]:
+
+            if turn_state["game_over"]:
                 updates["status"] = "finished"
                 self._finish_game(game_id)
-        else:
-            updates["turn"] = game_state["turn"] + 1
         
         # Update onboard card
         self.redis_service.set_onboard_card(game_id, played_card)
@@ -156,25 +192,30 @@ class HybridGameService:
         # Update game state
         self.redis_service.update_game_state(game_id, updates)
         
-        # Log card played event
+        # Log card played event — use user_id (FK to users), not GamePlayer.id
+        user_id_for_event = player_data.get("user_id")
         self.event_service.log_card_played(
-            game_id, player_id, played_card, points, game_state["turn"] == 1
+            game_id, user_id_for_event, played_card, points, game_state["turn"] == 1
         )
         
-        # Check if any player has no cards
+        # Check empty-hand game-over (separate from round-exhaustion above)
         updated_state = self.redis_service.get_game_state(game_id)
-        for pid, pdata in updated_state["players"].items():
-            if not pdata["hand"]:
+        if updated_state.get("status") != "finished":
+            hands = [pdata["hand"] for pdata in updated_state["players"].values()]
+            if GameEngine.is_game_over(updated_state["round"], updated_state["max_rounds"], hands):
+                updates["status"] = "finished"
+                self.redis_service.update_game_state(game_id, {"status": "finished"})
                 self._finish_game(game_id)
-                break
-        
+                updated_state = self.redis_service.get_game_state(game_id)
+
+        awarded = points if game_state["turn"] == 2 else 0
         return {
-            "points": points if game_state["turn"] == 2 else 0,
-            "player_points": player_data["points"] + (points if game_state["turn"] == 2 else 0),
+            "points": awarded,
+            "player_points": player_data["points"] + awarded,
             "onboard_card": played_card,
             "game_finished": updated_state.get("status") == "finished",
             "round": updated_state["round"],
-            "turn": updated_state["turn"]
+            "turn": updated_state["turn"],
         }
     
     def get_game_state(self, game_id: int, player_id: int = None) -> Optional[Dict[str, Any]]:
@@ -211,35 +252,36 @@ class HybridGameService:
         return result
     
     def _finish_game(self, game_id: int) -> None:
-        """Finish the game and save results"""
-        # Update PostgreSQL
+        """Finish the game, determine winner, and persist results."""
+        game_state = self.redis_service.get_game_state(game_id)
+        if not game_state:
+            return
+
+        player_points = {
+            pdata["id"]: pdata["points"]
+            for pdata in game_state["players"].values()
+        }
+        winner_id = GameEngine.determine_winner(player_points)
+
         game = self.db.query(Game).filter(Game.id == game_id).first()
         if game:
             game.status = "finished"
             self.db.commit()
-        
-        # Get final results from Redis
-        game_state = self.redis_service.get_game_state(game_id)
-        if not game_state:
-            return
-        
-        # Prepare final results
-        final_results = []
-        for pid, pdata in game_state["players"].items():
-            final_results.append({
-                "player_id": pdata["id"],
-                "points": pdata["points"],
-                "cards_played": pdata["cards_played"]
-            })
-        
-        # Sort by points (descending)
-        final_results.sort(key=lambda x: x["points"], reverse=True)
-        
-        # Log game finished
+
+        final_results = sorted(
+            [
+                {
+                    "player_id": pdata["id"],
+                    "points": pdata["points"],
+                    "cards_played": pdata.get("cards_played", 0),
+                }
+                for pdata in game_state["players"].values()
+            ],
+            key=lambda x: x["points"],
+            reverse=True,
+        )
+
         self.event_service.log_game_finished(game_id, final_results)
-        
-        # Clean up Redis after some time
-        # (Redis TTL will handle this automatically)
     
     def cleanup_expired_games(self) -> int:
         """Clean up expired games"""

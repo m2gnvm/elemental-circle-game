@@ -17,7 +17,8 @@ class Settings(BaseSettings):
     ALGORITHM: str = "HS256"
     ACCESS_TOKEN_EXPIRE_MINUTES: int = 30
     
-    # CORS
+    # CORS — set to the frontend origin(s) in production
+    # e.g. ALLOWED_HOSTS='["https://elemental-circle.kamilstankowski.pl"]'
     ALLOWED_HOSTS: List[str] = ["*"]
     
     # Game Settings

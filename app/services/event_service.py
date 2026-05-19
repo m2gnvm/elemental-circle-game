@@ -72,17 +72,18 @@ class EventService:
         )
         self.db.add(event)
         
-        # Save game results
+        # Save game results — stamp position into each dict so _update_player_stats can read it
         for i, result in enumerate(final_results, 1):
+            result["position"] = i
             game_result = GameResult(
                 game_id=game_id,
                 player_id=result["player_id"],
                 final_points=result["points"],
                 position=i,
-                cards_played=result["cards_played"]
+                cards_played=result["cards_played"],
             )
             self.db.add(game_result)
-        
+
         # Update player statistics
         self._update_player_stats(final_results)
         

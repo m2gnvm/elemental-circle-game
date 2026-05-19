@@ -25,7 +25,7 @@ app = FastAPI(
     lifespan=lifespan
 )
 
-# CORS middleware for Flutter web
+# CORS middleware for browser-based clients (e.g. Godot web export, dev tools)
 app.add_middleware(
     CORSMiddleware,
     allow_origins=settings.ALLOWED_HOSTS,

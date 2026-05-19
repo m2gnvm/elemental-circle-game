@@ -1,6 +1,6 @@
-# Elemental Circle Game Backend
+# Elemental Circle Game
 
-A strategic card game with elemental combat system built with FastAPI, PostgreSQL, and Redis using a hybrid architecture for optimal performance.
+A strategic card game with an elemental combat system. The **game client** is built in **Godot** (mobile-first; desktop and optional web export). The **backend** is **FastAPI** with **WebSockets**, **Redis** for live state, and **PostgreSQL** for persistence, analytics, and data/ML workflows.
 
 ## Features
 
@@ -10,17 +10,50 @@ A strategic card game with elemental combat system built with FastAPI, PostgreSQ
 - **Game Rooms**: Create and join game rooms with unique codes
 - **Elemental Combat**: Rock-paper-scissors style elemental system
 - **Dynamic Card Generation**: No database dependency for cards
-- **Event Analytics**: Comprehensive game event logging
+- **Event Analytics**: Comprehensive game event logging (foundation for ML and product analytics)
 - **Scalable Architecture**: Ready for production deployment
 
 ## Tech Stack
 
-- **Backend**: FastAPI + Python
-- **Frontend**: Flutter (Web, Mobile, Desktop)
-- **Database**: PostgreSQL with SQLAlchemy ORM (persistent data & analytics)
-- **Caching**: Redis for real-time game state management
-- **Authentication**: JWT tokens
-- **Real-time**: WebSocket connections
+| Layer | Technology |
+|--------|------------|
+| **Game client** | Godot 4+ (GDScript or C#) — HTTP + WebSocket to the API |
+| **Backend** | FastAPI + Python |
+| **Real-time state** | Redis (rooms, hands, turns, TTL) |
+| **Persistent data** | PostgreSQL + SQLAlchemy (users, events, stats) |
+| **Real-time transport** | WebSocket (`/ws/{game_id}`) + REST (`/api/v1/...`) |
+| **Auth** | JWT |
+| **Data / ML** | Event stream in PostgreSQL → batch or streaming jobs, feature stores, model training/serving (see Architecture) |
+
+## System Architecture
+
+```
++------------------------------------------------------------------+
+|  Godot client (Android / iOS / desktop; web export optional)      |
+|  REST: auth, rooms, play, state |  WebSocket: live game sync      |
++----------------------------+-------------------------------------+
+                             | HTTPS / WSS (JWT)
++----------------------------v-------------------------------------+
+|  FastAPI                                                        |
+|  HTTP API | WebSocket hub | Auth | Game / hybrid services       |
++----------------------------+-------------------------------------+
+               |                               |
+               v                               v
++---------------------------+    +----------------------------------+
+|  Redis                    |    |  PostgreSQL                      |
+|  Live game state, cache   |    |  Users, game events, analytics   |
++---------------------------+    +----------------+-----------------+
+                                               |
+                                               v
+                              +----------------+----------------------+
+                              |  Data / ML (Python ecosystem)       |
+                              |  ETL, dashboards, experiments,      |
+                              |  balance / cheat / engagement models|
+                              +-------------------------------------+
+```
+
+- **Godot** never talks to Redis or Postgres directly; it only uses the **public API** (REST + WebSocket). That keeps one contract and lets you change storage without shipping a new client.
+- **PostgreSQL** (especially **game events** and aggregates) is the natural **source of truth for analytics and ML**: export to a warehouse, train offline, or serve batch/online predictions from FastAPI or a sidecar service when you add those endpoints.
 
 ## Quick Start
 
@@ -64,10 +97,10 @@ A strategic card game with elemental combat system built with FastAPI, PostgreSQ
 4. **Test the Game**
    ```bash
    # Interactive game (you vs AI)
-   python interactive_game.py --rounds 5
+   python test_scripts/interactive_game.py --rounds 5
    
    # AI vs AI simulation
-   python simulate_ai_fights.py --fights 10 --rounds 3
+   python test_scripts/simulate_ai_fights.py --fights 10 --rounds 3
    ```
 
 5. **Access API Documentation**
@@ -92,6 +125,8 @@ A strategic card game with elemental combat system built with FastAPI, PostgreSQ
 ### WebSocket
 - `WS /ws/{game_id}` - Real-time game updates
 
+**Client integration (Godot):** request/response shapes, WebSocket behavior, and security notes are in [docs/api-for-godot.md](docs/api-for-godot.md).
+
 ## Architecture
 
 ### Hybrid Database Design
@@ -109,6 +144,12 @@ A strategic card game with elemental combat system built with FastAPI, PostgreSQ
 - **RedisGameService**: Manages fast game state
 - **EventService**: Logs events for analytics
 - **Dynamic Card Generation**: No database dependency
+
+### Data / ML Engineering (roadmap)
+- **Ingestion**: Existing event logging → structured tables or exports (CSV/Parquet, warehouse sync).
+- **Offline**: Notebooks or pipelines (e.g. pandas, Polars, scikit-learn, PyTorch) for balance analysis, segmentation, churn, or bot policy research.
+- **Online**: Optional FastAPI routes or workers that read precomputed scores or call a model; keep **gameplay-critical paths** fast and Redis-friendly.
+- **MLOps**: Version models, track experiments, and separate **training** from **serving** as traffic grows.
 
 ## Game Rules
 
@@ -137,22 +178,20 @@ A strategic card game with elemental combat system built with FastAPI, PostgreSQ
 - **Custom Game Modes**: Different rule sets and card variations
 - **Player Statistics**: Detailed performance tracking and leaderboards
 
-### Phase 2: Web Application
-- **Flutter Web App**: Full-featured web application with modern UI
+### Phase 2: Godot Client & Social
+- **Godot app**: Mobile-first builds (Android/iOS), desktop; optional HTML5 export for demos
 - **Social Features**: Friends list, chat, and social interactions
-- **Enhanced UI/UX**: Beautiful game interface with animations
-- **Progressive Web App**: Installable web app with offline capabilities
+- **Polish**: Card motion, VFX, and responsive layouts for many screen sizes
 
-### Phase 3: Production Scale
+### Phase 3: Production Scale & Intelligence
 - **Cloud Deployment**: AWS/Azure production deployment
 - **Load Balancing**: Handle thousands of concurrent players
-- **Advanced Analytics**: ML-powered game balancing and cheat detection
+- **Data & ML**: Deeper pipelines on PostgreSQL events — balance patches, anomaly/cheat signals, engagement models
 - **Monetization**: Premium features and cosmetic items
 
 ### Phase 4: Platform Expansion (Optional)
-- **Mobile Apps**: Native iOS and Android applications
-- **Steam Integration**: Desktop version for Steam platform
-- **Cross-Platform**: Full cross-platform multiplayer support
+- **Steam / desktop stores**: Packaged Godot desktop builds
+- **Cross-Platform**: Same backend; clients share the API contract
 
 ## Technical Specifications
 
@@ -161,4 +200,4 @@ A strategic card game with elemental combat system built with FastAPI, PostgreSQ
 - **Real-time Communication**: WebSocket with Redis pub/sub
 - **Containerization**: Docker with multi-service orchestration
 - **Authentication**: JWT-based secure authentication
-
+- **Client**: Godot — HTTP for REST, WebSocket for live sync; no direct DB access
