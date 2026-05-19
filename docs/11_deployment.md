@@ -19,105 +19,122 @@ Then open `http://<your-vps-ip>:8000` and follow the onboarding wizard.
 
 ### Domains
 
-| Service | Domain |
+| Coolify app | Domain |
 |---|---|
-| Flutter UI (`frontend`) | `elemental-circle.kamilstankowski.pl` |
-| FastAPI backend (`app`) | `ec-api.kamilstankowski.pl` |
+| Flutter UI | `elemental-circle.kamilstankowski.pl` |
+| FastAPI backend | `ec-api.kamilstankowski.pl` |
 
-Both services live in the same Docker Compose stack on the same VPS.
-Coolify's built-in Traefik reverse proxy handles TLS and routes each domain to
-the correct container.
+Each service is a **separate Coolify application** pointing at the same Git repo
+but a different Dockerfile. They are fully independent: separate deploys, logs,
+and restarts. Postgres and Redis run as separate Coolify managed services.
 
 ---
 
-### Deploying the full stack in Coolify
+### Infrastructure overview
 
-#### 1. Create a new Resource → Docker Compose
+```
+Internet  HTTPS :443
+  │
+  ▼
+Traefik (managed by Coolify)
+  ├── elemental-circle.kamilstankowski.pl → [Coolify app: frontend]
+  │     └── Nginx serving Flutter SPA (frontend/Dockerfile)
+  │
+  └── ec-api.kamilstankowski.pl          → [Coolify app: backend]
+        └── FastAPI :8000 (root Dockerfile)
 
-- Source: your Git repo (GitHub / GitLab / self-hosted Gitea)
-- Docker Compose file: `docker-compose.yml` (root of repo)
-- Branch: `main`
+Managed services (internal, not public):
+  elemental-postgres  (Coolify PostgreSQL)
+  elemental-redis     (Coolify Redis)
 
-#### 2. Assign domains to services
-
-In Coolify's **Domains** tab, set:
-
-| Service name | Domain |
-|---|---|
-| `frontend` | `elemental-circle.kamilstankowski.pl` |
-| `app` | `ec-api.kamilstankowski.pl` |
-
-Coolify provisions TLS certificates automatically via Let's Encrypt.
-
-#### 3. Set Environment Variables in Coolify UI
-
-Go to **Environment Variables** for the resource and add:
-
-| Variable | Value | Purpose |
-|---|---|---|
-| `API_URL` | `https://ec-api.kamilstankowski.pl` | Baked into Flutter build — where the browser calls |
-| `API_WS_URL` | `wss://ec-api.kamilstankowski.pl` | WebSocket equivalent |
-| `ALLOWED_ORIGINS` | `["https://elemental-circle.kamilstankowski.pl"]` | Backend CORS whitelist |
-| `POSTGRES_PASSWORD` | *(strong random string)* | |
-| `SECRET_KEY` | *(64-char hex, see below)* | |
-| `POSTGRES_DB` | `elemental_circle` | |
-| `POSTGRES_USER` | `gameuser` | |
-
-Generate `SECRET_KEY`:
-```bash
-python3 -c "import secrets; print(secrets.token_hex(32))"
+Browser flow:
+  Page load   → elemental-circle.kamilstankowski.pl        (Flutter JS/HTML)
+  API calls   → ec-api.kamilstankowski.pl/api/v1/...       (FastAPI, CORS-OK)
+  WebSocket   → wss://ec-api.kamilstankowski.pl/ws/...
 ```
 
-#### 4. Deploy
+---
 
-Click **Deploy**. Coolify will:
-1. Build the backend image (`Dockerfile` in repo root)
-2. Build the Flutter web image (`frontend/Dockerfile`) — ~5-10 min first time
-3. Start postgres → redis → app → frontend in dependency order
-4. Provision TLS certs and start routing traffic
+### Step-by-step Coolify setup
+
+#### 1. Create managed services (do this first)
+
+- **Resources → New → PostgreSQL** — name it `elemental-postgres`
+- **Resources → New → Redis** — name it `elemental-redis`
+
+Copy their internal connection strings — you'll need them as env vars below.
+
+#### 2. Create the Backend app
+
+- **Resources → New → Application**
+- Source: Git repo, branch `main`
+- Build pack: **Dockerfile**
+- Dockerfile path: `Dockerfile` (root)
+- Domain: `ec-api.kamilstankowski.pl`
+
+**Environment Variables:**
+
+| Variable | Value |
+|---|---|
+| `DATABASE_URL` | *(from Coolify PostgreSQL → Connection)* |
+| `REDIS_URL` | *(from Coolify Redis → Connection)* |
+| `SECRET_KEY` | *(run: `python3 -c "import secrets; print(secrets.token_hex(32))"`)* |
+| `ALLOWED_HOSTS` | `["https://elemental-circle.kamilstankowski.pl"]` |
+| `ACCESS_TOKEN_EXPIRE_MINUTES` | `30` |
+
+#### 3. Create the Frontend app
+
+- **Resources → New → Application**
+- Source: same Git repo, branch `main`
+- Build pack: **Dockerfile**
+- Dockerfile path: `frontend/Dockerfile`
+- Docker build context: `frontend`
+- Domain: `elemental-circle.kamilstankowski.pl`
+
+**Build Arguments** (set in Coolify's Build Args / Environment Variables UI):
+
+| Variable | Value |
+|---|---|
+| `API_URL` | `https://ec-api.kamilstankowski.pl` |
+| `API_WS_URL` | `wss://ec-api.kamilstankowski.pl` |
+
+> **These are build-time args, not runtime env vars.**  
+> In Coolify look for "Build Arguments" or set them as env vars marked
+> as "Available during build". Flutter bakes them into the JS bundle at
+> compile time — if you change the domain you must **Rebuild**, not just Restart.
+
+#### 4. Deploy order
+
+1. Deploy backend first (it needs DB/Redis to be healthy)
+2. Deploy frontend after (it just serves static files, no runtime deps)
 
 #### 5. Verify
 
 ```
 https://elemental-circle.kamilstankowski.pl          → Flutter web UI
-https://ec-api.kamilstankowski.pl/health             → FastAPI health check
+https://ec-api.kamilstankowski.pl/health             → {"status":"healthy"}
 https://ec-api.kamilstankowski.pl/api/v1/docs        → Swagger UI
 ```
 
 ---
 
-### Architecture on the VPS
+### docker-compose.yml — local dev only
 
+The `docker-compose.yml` in the repo is kept for running the full stack locally.
+In production, Coolify manages each service separately.
+
+```bash
+# Local dev — copy and fill in .env.example first
+cp .env.example .env
+docker compose up --build
 ```
-Internet
-  │  HTTPS :443
-  ▼
-Traefik (managed by Coolify)
-  ├── elemental-circle.kamilstankowski.pl
-  │     └── elemental_frontend  (Nginx serving Flutter SPA)
-  │
-  └── ec-api.kamilstankowski.pl
-        └── elemental_app  (FastAPI :8000)
-
-Browser flow:
-  Page load   → elemental-circle.kamilstankowski.pl  (Flutter JS/HTML)
-  API calls   → ec-api.kamilstankowski.pl/api/v1/...  (FastAPI, CORS-whitelisted)
-  WebSocket   → wss://ec-api.kamilstankowski.pl/ws/...
-```
-
-Postgres and Redis are **internal only** — not exposed to the internet.
-
-> **Important — Flutter bakes the URL at image build time.**  
-> If you ever change `API_URL`, trigger a **Rebuild & Deploy** (not just Restart)
-> so the Flutter web assets are recompiled with the new value.
 
 ---
 
 ### Keeping secrets out of Git
 
 - `.env` is gitignored — never commit it.
-- Copy `.env.example` → `.env` locally for `docker compose up` in dev.
-- All production secrets live only in Coolify's encrypted environment variable store.
+- All production secrets live only in Coolify's encrypted env var store.
 
 ---
 
