@@ -42,5 +42,5 @@ macos/
 # Windows
 windows/
 
-# Web
-web/
+# Web build output only (not the web/ project directory)
+# web/
