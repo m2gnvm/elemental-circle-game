@@ -25,10 +25,10 @@ app = FastAPI(
     lifespan=lifespan
 )
 
-# CORS middleware for browser-based clients (e.g. Godot web export, dev tools)
+# Backend is internal-only — Nginx proxies to it, so wildcard CORS is safe.
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=settings.ALLOWED_HOSTS,
+    allow_origins=["*"],
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],

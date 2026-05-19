@@ -1,6 +1,4 @@
 from pydantic_settings import BaseSettings
-from pydantic import Field
-from typing import List
 
 
 class Settings(BaseSettings):
@@ -17,10 +15,6 @@ class Settings(BaseSettings):
     SECRET_KEY: str = "your-secret-key-change-in-production-elemental-circle-2024"
     ALGORITHM: str = "HS256"
     ACCESS_TOKEN_EXPIRE_MINUTES: int = 30
-
-    # Hardcoded — backend is internal-only (Nginx proxies to it).
-    # Excluded from env parsing to avoid JSON format issues across platforms.
-    ALLOWED_HOSTS: List[str] = Field(default=["*"], exclude=True)
 
     # Game Settings
     MAX_PLAYERS_PER_GAME: int = 2
